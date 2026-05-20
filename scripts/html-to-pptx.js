@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 
-import { readFile, writeFile } from "fs/promises";
 import { resolve, basename } from "path";
-import { fileURLToPath } from "url";
 import puppeteer from "puppeteer";
 import pptxgen from "pptxgenjs";
 
@@ -11,20 +9,6 @@ const SLIDE_H = 720;
 const PX_PER_INCH = 96;
 const SINGLE_LINE_WIDTH_BUFFER = 1.05;
 
-const ALLOWED_TAGS = new Set([
-  "DIV", "TABLE", "TR", "TD", "TH", "TBODY", "THEAD", "TFOOT",
-  "H1", "H2", "H3", "H4", "H5", "H6", "P", "LI",
-  "SPAN", "B", "I", "U",
-  "UL", "OL",
-  "IMG",
-  "BR",
-]);
-
-const TEXT_TAGS = new Set([
-  "H1", "H2", "H3", "H4", "H5", "H6", "P", "LI", "TD", "TH",
-]);
-
-const INLINE_TAGS = new Set(["SPAN", "B", "I", "U", "BR"]);
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -78,12 +62,6 @@ function validatePageDOM() {
     "BR",
   ]);
 
-  const TEXT_ELEMENTS = new Set([
-    "H1", "H2", "H3", "H4", "H5", "H6", "P", "LI", "TD", "TH",
-  ]);
-
-  const INLINE_ELEMENTS = new Set(["SPAN", "B", "I", "U", "BR"]);
-
   const walk = (el) => {
     if (el.nodeType === Node.ELEMENT_NODE) {
       if (!ALLOWED.has(el.tagName)) {
@@ -103,13 +81,22 @@ function validatePageDOM() {
   };
   walk(root);
 
-  const allTextEls = root.querySelectorAll("h1,h2,h3,h4,h5,h6,p,li,td,th,span,b,i,u");
-  for (const el of allTextEls) {
-    const cs = window.getComputedStyle(el);
-    const font = cs.fontFamily;
-    if (!font.includes("Microsoft YaHei") && !font.includes("微软雅黑")) {
-      errors.push(`Element <${el.tagName.toLowerCase()}> resolved to font "${font}", expected "Microsoft YaHei". Is the font installed?`);
-      break;
+  const rootCS = window.getComputedStyle(root);
+  const declaredFont = rootCS.fontFamily;
+  const firstTextEl = root.querySelector("h1,h2,h3,h4,h5,h6,p,li,td,th");
+  if (firstTextEl) {
+    const resolvedFont = window.getComputedStyle(firstTextEl).fontFamily;
+    // Detect if the browser fell back to a generic font not matching the declared one.
+    // The resolved fontFamily should contain at least one of the declared families.
+    const declared = declaredFont.split(",").map(f => f.trim().replace(/['"]/g, "").toLowerCase());
+    const resolved = resolvedFont.split(",").map(f => f.trim().replace(/['"]/g, "").toLowerCase());
+    const genericFonts = new Set(["serif", "sans-serif", "monospace", "cursive", "fantasy", "system-ui"]);
+    const declaredSpecific = declared.filter(f => !genericFonts.has(f));
+    if (declaredSpecific.length > 0) {
+      const matched = declaredSpecific.some(f => resolved.some(r => r.includes(f) || f.includes(r)));
+      if (!matched) {
+        errors.push(`Font mismatch: declared "${declaredFont}" but resolved to "${resolvedFont}". Is the font installed?`);
+      }
     }
   }
 
@@ -151,8 +138,8 @@ function extractTextElements() {
     const runs = [];
     for (const node of el.childNodes) {
       if (node.nodeType === Node.TEXT_NODE) {
-        const text = node.textContent;
-        if (text.length === 0) continue;
+        const text = node.textContent.replace(/\s+/g, " ");
+        if (text.length === 0 || text === " ") continue;
         const cs = window.getComputedStyle(el);
         runs.push({
           text,
@@ -199,14 +186,21 @@ function extractTextElements() {
       const isSingleLine = rect.height <= lineHeight * 1.5;
 
       const runs = extractRuns(el);
+      if (runs.length > 0 && !runs[0].br) runs[0].text = runs[0].text.replace(/^\s+/, "");
+      if (runs.length > 0 && !runs[runs.length - 1].br) runs[runs.length - 1].text = runs[runs.length - 1].text.replace(/\s+$/, "");
       if (runs.length === 0 || runs.every(r => r.br || r.text.trim() === "")) return;
 
       let bulletType = null;
       let bulletIndent = 0;
+      let bulletStartAt = 1;
       if (el.tagName === "LI") {
         const list = el.parentElement;
         bulletType = list && list.tagName === "OL" ? "number" : "bullet";
         bulletIndent = parseFloat(cs.paddingLeft) || 0;
+        if (bulletType === "number") {
+          const siblings = Array.from(list.children).filter(c => c.tagName === "LI");
+          bulletStartAt = siblings.indexOf(el) + 1;
+        }
       }
 
       result.push({
@@ -218,9 +212,11 @@ function extractTextElements() {
         isSingleLine,
         textAlign: cs.textAlign,
         lineHeight: parseFloat(cs.lineHeight) || undefined,
+        fontFamily: cs.fontFamily.split(",")[0].trim().replace(/['"]/g, ""),
         runs,
         bulletType,
         bulletIndent,
+        bulletStartAt,
       });
       return;
     }
@@ -279,7 +275,7 @@ async function main() {
   });
 
   const pptx = new pptxgen();
-  pptx.defineLayout("CUSTOM_16x9", { width: SLIDE_W / PX_PER_INCH, height: SLIDE_H / PX_PER_INCH });
+  pptx.defineLayout({ name: "CUSTOM_16x9", width: SLIDE_W / PX_PER_INCH, height: SLIDE_H / PX_PER_INCH });
   pptx.layout = "CUSTOM_16x9";
 
   let hasErrors = false;
@@ -292,7 +288,6 @@ async function main() {
     const page = await browser.newPage();
     await page.setViewport({ width: SLIDE_W, height: SLIDE_H, deviceScaleFactor: 2 });
 
-    const html = await readFile(filePath, "utf-8");
     const fileUrl = `file://${filePath}`;
     await page.goto(fileUrl, { waitUntil: "networkidle0", timeout: 30000 });
 
@@ -355,7 +350,7 @@ async function main() {
         const opts = {
           text: run.text,
           options: {
-            fontFace: "Microsoft YaHei",
+            fontFace: el.fontFamily,
             fontSize: Math.round(run.fontSize * 0.75),
             color: cssColorToHex(run.color),
             bold: run.bold,
@@ -380,7 +375,7 @@ async function main() {
         align: el.textAlign === "center" ? "center" : el.textAlign === "right" ? "right" : "left",
         wrap: !el.isSingleLine,
         shrinkText: false,
-        fontFace: "Microsoft YaHei",
+        fontFace: el.fontFamily,
       };
 
       if (el.lineHeight) {
@@ -390,7 +385,7 @@ async function main() {
       if (el.bulletType === "bullet") {
         textOpts.bullet = true;
       } else if (el.bulletType === "number") {
-        textOpts.bullet = { type: "number" };
+        textOpts.bullet = { type: "number", startAt: el.bulletStartAt };
       }
 
       slide.addText(pptxRuns, textOpts);

@@ -96,8 +96,11 @@ them and fails fast with clear error messages on violations.
 
 The root element must be exactly **1280 × 720 pixels** (16:9 at 96 DPI).
 
+**Important**: use `box-sizing: border-box` so that padding does not expand
+the root element beyond 1280×720.
+
 ```html
-<div style="width:1280px; height:720px; ...">
+<div style="width:1280px; height:720px; box-sizing:border-box; ...">
   <!-- slide content -->
 </div>
 ```
