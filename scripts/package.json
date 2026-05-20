@@ -1,0 +1,14 @@
+{
+  "name": "pptx-slide-converter",
+  "version": "1.0.0",
+  "description": "Convert HTML slides to PPTX via browser rendering",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "convert": "node html-to-pptx.js"
+  },
+  "dependencies": {
+    "pptxgenjs": "^4.0.1",
+    "puppeteer": "^24.9.0"
+  }
+}

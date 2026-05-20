@@ -1,0 +1,419 @@
+#!/usr/bin/env node
+
+import { readFile, writeFile } from "fs/promises";
+import { resolve, basename } from "path";
+import { fileURLToPath } from "url";
+import puppeteer from "puppeteer";
+import pptxgen from "pptxgenjs";
+
+const SLIDE_W = 1280;
+const SLIDE_H = 720;
+const PX_PER_INCH = 96;
+const SINGLE_LINE_WIDTH_BUFFER = 1.05;
+
+const ALLOWED_TAGS = new Set([
+  "DIV", "TABLE", "TR", "TD", "TH", "TBODY", "THEAD", "TFOOT",
+  "H1", "H2", "H3", "H4", "H5", "H6", "P", "LI",
+  "SPAN", "B", "I", "U",
+  "UL", "OL",
+  "IMG",
+  "BR",
+]);
+
+const TEXT_TAGS = new Set([
+  "H1", "H2", "H3", "H4", "H5", "H6", "P", "LI", "TD", "TH",
+]);
+
+const INLINE_TAGS = new Set(["SPAN", "B", "I", "U", "BR"]);
+
+// ---------------------------------------------------------------------------
+// CLI
+// ---------------------------------------------------------------------------
+
+function usage() {
+  console.log(`Usage: html-to-pptx.js [options] <slide1.html> [slide2.html ...]
+
+Options:
+  --output, -o <file>   Output PPTX file path (default: output.pptx)
+  --help, -h            Show this help message`);
+  process.exit(0);
+}
+
+function parseArgs(argv) {
+  const args = argv.slice(2);
+  let output = "output.pptx";
+  const files = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--help" || args[i] === "-h") usage();
+    if (args[i] === "--output" || args[i] === "-o") { output = args[++i]; continue; }
+    files.push(args[i]);
+  }
+  if (files.length === 0) { console.error("Error: No HTML files specified."); usage(); }
+  return { output, files };
+}
+
+// ---------------------------------------------------------------------------
+// Validation (runs inside Puppeteer page context)
+// ---------------------------------------------------------------------------
+
+function validatePageDOM() {
+  const errors = [];
+  const root = document.body.firstElementChild;
+  if (!root) {
+    errors.push("No root element found in <body>.");
+    return errors;
+  }
+
+  const rect = root.getBoundingClientRect();
+  if (Math.round(rect.width) !== 1280 || Math.round(rect.height) !== 720) {
+    errors.push(`Root element is ${Math.round(rect.width)}x${Math.round(rect.height)}, must be 1280x720.`);
+  }
+
+  const ALLOWED = new Set([
+    "DIV", "TABLE", "TR", "TD", "TH", "TBODY", "THEAD", "TFOOT",
+    "H1", "H2", "H3", "H4", "H5", "H6", "P", "LI",
+    "SPAN", "B", "I", "U",
+    "UL", "OL",
+    "IMG",
+    "BR",
+  ]);
+
+  const TEXT_ELEMENTS = new Set([
+    "H1", "H2", "H3", "H4", "H5", "H6", "P", "LI", "TD", "TH",
+  ]);
+
+  const INLINE_ELEMENTS = new Set(["SPAN", "B", "I", "U", "BR"]);
+
+  const walk = (el) => {
+    if (el.nodeType === Node.ELEMENT_NODE) {
+      if (!ALLOWED.has(el.tagName)) {
+        errors.push(`Element <${el.tagName.toLowerCase()}> is not allowed. Use only: div, h1-h6, p, img, span, b, i, u, ul, ol, li, table, tr, td, th`);
+      }
+      if (el.tagName === "DIV" || el.tagName === "TABLE" || el.tagName === "TR" ||
+          el.tagName === "TBODY" || el.tagName === "THEAD" || el.tagName === "TFOOT" ||
+          el.tagName === "UL" || el.tagName === "OL") {
+        for (const child of el.childNodes) {
+          if (child.nodeType === Node.TEXT_NODE && child.textContent.trim()) {
+            errors.push(`<${el.tagName.toLowerCase()}> contains bare text "${child.textContent.trim().slice(0, 40)}". Wrap text in <p>, <h*>, or <li>.`);
+          }
+        }
+      }
+    }
+    for (const child of el.children) walk(child);
+  };
+  walk(root);
+
+  const allTextEls = root.querySelectorAll("h1,h2,h3,h4,h5,h6,p,li,td,th,span,b,i,u");
+  for (const el of allTextEls) {
+    const cs = window.getComputedStyle(el);
+    const font = cs.fontFamily;
+    if (!font.includes("Microsoft YaHei") && !font.includes("微软雅黑")) {
+      errors.push(`Element <${el.tagName.toLowerCase()}> resolved to font "${font}", expected "Microsoft YaHei". Is the font installed?`);
+      break;
+    }
+  }
+
+  const allImgs = root.querySelectorAll("img");
+  for (const img of allImgs) {
+    if (!img.complete || img.naturalWidth === 0) {
+      errors.push(`<img> failed to load: src="${img.src}"`);
+    }
+  }
+
+  return errors;
+}
+
+// ---------------------------------------------------------------------------
+// Text extraction (runs inside Puppeteer page context)
+// ---------------------------------------------------------------------------
+
+function extractTextElements() {
+  const TEXT_ELEMENTS = new Set([
+    "H1", "H2", "H3", "H4", "H5", "H6", "P", "LI", "TD", "TH",
+  ]);
+  const INLINE_TAGS = new Set(["SPAN", "B", "I", "U", "BR"]);
+
+  const result = [];
+  const root = document.body.firstElementChild;
+  if (!root) return result;
+
+  const rootRect = root.getBoundingClientRect();
+
+  function hasTextElementDescendant(el) {
+    for (const child of el.children) {
+      if (TEXT_ELEMENTS.has(child.tagName)) return true;
+      if (hasTextElementDescendant(child)) return true;
+    }
+    return false;
+  }
+
+  function extractRuns(el) {
+    const runs = [];
+    for (const node of el.childNodes) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent;
+        if (text.length === 0) continue;
+        const cs = window.getComputedStyle(el);
+        runs.push({
+          text,
+          bold: cs.fontWeight >= 700 || el.tagName === "B",
+          italic: cs.fontStyle === "italic" || el.tagName === "I",
+          underline: cs.textDecorationLine.includes("underline") || el.tagName === "U",
+          color: cs.color,
+          fontSize: parseFloat(cs.fontSize),
+        });
+      } else if (node.nodeType === Node.ELEMENT_NODE && INLINE_TAGS.has(node.tagName)) {
+        if (node.tagName === "BR") {
+          runs.push({ text: "\n", br: true });
+          continue;
+        }
+        const childRuns = extractRuns(node);
+        const cs = window.getComputedStyle(node);
+        for (const r of childRuns) {
+          runs.push({
+            text: r.text,
+            bold: r.bold || cs.fontWeight >= 700 || node.tagName === "B",
+            italic: r.italic || cs.fontStyle === "italic" || node.tagName === "I",
+            underline: r.underline || cs.textDecorationLine.includes("underline") || node.tagName === "U",
+            color: r.color || cs.color,
+            fontSize: r.fontSize || parseFloat(cs.fontSize),
+          });
+        }
+      }
+    }
+    return runs;
+  }
+
+  function walk(el) {
+    if (el.nodeType !== Node.ELEMENT_NODE) return;
+
+    if (TEXT_ELEMENTS.has(el.tagName)) {
+      if (el.tagName === "LI" && hasTextElementDescendant(el)) {
+        for (const child of el.children) walk(child);
+        return;
+      }
+
+      const rect = el.getBoundingClientRect();
+      const cs = window.getComputedStyle(el);
+      const lineHeight = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2;
+      const isSingleLine = rect.height <= lineHeight * 1.5;
+
+      const runs = extractRuns(el);
+      if (runs.length === 0 || runs.every(r => r.br || r.text.trim() === "")) return;
+
+      let bulletType = null;
+      let bulletIndent = 0;
+      if (el.tagName === "LI") {
+        const list = el.parentElement;
+        bulletType = list && list.tagName === "OL" ? "number" : "bullet";
+        bulletIndent = parseFloat(cs.paddingLeft) || 0;
+      }
+
+      result.push({
+        tag: el.tagName,
+        x: rect.left - rootRect.left,
+        y: rect.top - rootRect.top,
+        w: rect.width,
+        h: rect.height,
+        isSingleLine,
+        textAlign: cs.textAlign,
+        lineHeight: parseFloat(cs.lineHeight) || undefined,
+        runs,
+        bulletType,
+        bulletIndent,
+      });
+      return;
+    }
+
+    for (const child of el.children) walk(child);
+  }
+
+  walk(root);
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Color conversion
+// ---------------------------------------------------------------------------
+
+function cssColorToHex(color) {
+  if (!color) return "000000";
+  const m = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+  if (m) {
+    const r = parseInt(m[1]).toString(16).padStart(2, "0");
+    const g = parseInt(m[2]).toString(16).padStart(2, "0");
+    const b = parseInt(m[3]).toString(16).padStart(2, "0");
+    return (r + g + b).toUpperCase();
+  }
+  if (color.startsWith("#")) return color.slice(1).toUpperCase();
+  return "000000";
+}
+
+function cssColorAlpha(color) {
+  if (!color) return 0;
+  const m = color.match(/rgba\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*,\s*([\d.]+)\s*\)/);
+  if (m) {
+    const a = parseFloat(m[1]);
+    return Math.round((1 - a) * 100);
+  }
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+async function main() {
+  const { output, files } = parseArgs(process.argv);
+
+  console.log(`Converting ${files.length} slide(s) → ${output}`);
+
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--font-render-hinting=none",
+      "--disable-lcd-text",
+    ],
+  });
+
+  const pptx = new pptxgen();
+  pptx.defineLayout("CUSTOM_16x9", { width: SLIDE_W / PX_PER_INCH, height: SLIDE_H / PX_PER_INCH });
+  pptx.layout = "CUSTOM_16x9";
+
+  let hasErrors = false;
+
+  for (let i = 0; i < files.length; i++) {
+    const filePath = resolve(files[i]);
+    const fileName = basename(filePath);
+    console.log(`\n[${i + 1}/${files.length}] ${fileName}`);
+
+    const page = await browser.newPage();
+    await page.setViewport({ width: SLIDE_W, height: SLIDE_H, deviceScaleFactor: 2 });
+
+    const html = await readFile(filePath, "utf-8");
+    const fileUrl = `file://${filePath}`;
+    await page.goto(fileUrl, { waitUntil: "networkidle0", timeout: 30000 });
+
+    // --- Validate ---
+    console.log("  Validating...");
+    const validationErrors = await page.evaluate(validatePageDOM);
+    if (validationErrors.length > 0) {
+      console.error(`  ✗ Validation failed for ${fileName}:`);
+      for (const err of validationErrors) console.error(`    - ${err}`);
+      hasErrors = true;
+      await page.close();
+      continue;
+    }
+    console.log("  ✓ Validation passed");
+
+    // --- Extract text elements before modifying the page ---
+    console.log("  Extracting text...");
+    const textElements = await page.evaluate(extractTextElements);
+    console.log(`  Found ${textElements.length} text element(s)`);
+
+    // --- Screenshot with transparent text ---
+    console.log("  Screenshotting visual layer...");
+    await page.evaluate(() => {
+      const style = document.createElement("style");
+      style.id = "__pptx_transparent";
+      style.textContent = `
+        h1,h2,h3,h4,h5,h6,p,li,span,b,i,u,td,th {
+          color: transparent !important;
+          -webkit-text-stroke: 0 !important;
+          text-shadow: none !important;
+        }
+      `;
+      document.head.appendChild(style);
+    });
+
+    const root = await page.$("body > *:first-child");
+    const screenshotBuffer = await root.screenshot({ type: "png" });
+
+    // --- Build PPTX slide ---
+    console.log("  Building PPTX slide...");
+    const slide = pptx.addSlide();
+
+    const bgBase64 = screenshotBuffer.toString("base64");
+    slide.background = { data: `image/png;base64,${bgBase64}` };
+
+    for (const el of textElements) {
+      const x = el.x / PX_PER_INCH;
+      const y = el.y / PX_PER_INCH;
+      let w = el.w / PX_PER_INCH;
+      const h = el.h / PX_PER_INCH;
+
+      if (el.isSingleLine) w *= SINGLE_LINE_WIDTH_BUFFER;
+
+      const pptxRuns = [];
+      for (const run of el.runs) {
+        if (run.br) {
+          pptxRuns.push({ text: "\n" });
+          continue;
+        }
+        const opts = {
+          text: run.text,
+          options: {
+            fontFace: "Microsoft YaHei",
+            fontSize: Math.round(run.fontSize * 0.75),
+            color: cssColorToHex(run.color),
+            bold: run.bold,
+            italic: run.italic,
+            underline: { style: run.underline ? "sng" : "none" },
+          },
+        };
+        const alpha = cssColorAlpha(run.color);
+        if (alpha > 0) opts.options.transparency = alpha;
+        pptxRuns.push(opts);
+      }
+
+      if (pptxRuns.length === 0) continue;
+
+      const textOpts = {
+        x,
+        y,
+        w: Math.min(w, SLIDE_W / PX_PER_INCH - x),
+        h,
+        margin: 0,
+        valign: "top",
+        align: el.textAlign === "center" ? "center" : el.textAlign === "right" ? "right" : "left",
+        wrap: !el.isSingleLine,
+        shrinkText: false,
+        fontFace: "Microsoft YaHei",
+      };
+
+      if (el.lineHeight) {
+        textOpts.lineSpacingMultiple = el.lineHeight / (el.runs[0]?.fontSize || 16);
+      }
+
+      if (el.bulletType === "bullet") {
+        textOpts.bullet = true;
+      } else if (el.bulletType === "number") {
+        textOpts.bullet = { type: "number" };
+      }
+
+      slide.addText(pptxRuns, textOpts);
+    }
+
+    await page.close();
+    console.log("  ✓ Slide added");
+  }
+
+  if (hasErrors) {
+    console.error("\n✗ Some slides had validation errors. Fix them and re-run.");
+    await browser.close();
+    process.exit(1);
+  }
+
+  const outputPath = resolve(output);
+  await pptx.writeFile({ fileName: outputPath });
+  console.log(`\n✓ PPTX written to ${outputPath}`);
+
+  await browser.close();
+}
+
+main().catch((err) => {
+  console.error("Fatal error:", err);
+  process.exit(1);
+});

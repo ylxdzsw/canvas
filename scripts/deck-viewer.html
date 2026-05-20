@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Slide Deck Viewer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a1a; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+
+  #stage {
+    position: relative;
+    width: 1280px;
+    height: 720px;
+    transform-origin: center center;
+    background: #000;
+    box-shadow: 0 4px 40px rgba(0,0,0,0.5);
+  }
+
+  #stage iframe {
+    position: absolute;
+    top: 0; left: 0;
+    width: 1280px;
+    height: 720px;
+    border: none;
+    display: none;
+  }
+
+  #stage iframe.active { display: block; }
+
+  #counter {
+    margin-top: 16px;
+    color: #888;
+    font-family: system-ui, sans-serif;
+    font-size: 14px;
+    user-select: none;
+  }
+
+  #hint {
+    position: fixed;
+    bottom: 16px;
+    color: #555;
+    font-family: system-ui, sans-serif;
+    font-size: 12px;
+    user-select: none;
+  }
+</style>
+</head>
+<body>
+
+<div id="stage"></div>
+<div id="counter"></div>
+<div id="hint">← → Arrow keys to navigate</div>
+
+<script>
+const slides = [/* SLIDE_LIST */];
+
+let current = 0;
+const stage = document.getElementById('stage');
+const counter = document.getElementById('counter');
+const iframes = [];
+
+slides.forEach((src, i) => {
+  const iframe = document.createElement('iframe');
+  iframe.src = src;
+  iframe.loading = i < 2 ? 'eager' : 'lazy';
+  if (i === 0) iframe.classList.add('active');
+  stage.appendChild(iframe);
+  iframes.push(iframe);
+});
+
+function show(index) {
+  if (index < 0 || index >= slides.length) return;
+  iframes[current].classList.remove('active');
+  current = index;
+  iframes[current].classList.add('active');
+  counter.textContent = (current + 1) + ' / ' + slides.length;
+}
+
+function rescale() {
+  const ww = window.innerWidth;
+  const wh = window.innerHeight - 60;
+  const scale = Math.min(ww / 1280, wh / 720, 1);
+  stage.style.transform = 'scale(' + scale + ')';
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); show(current + 1); }
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp')    { e.preventDefault(); show(current - 1); }
+  if (e.key === 'Home') { e.preventDefault(); show(0); }
+  if (e.key === 'End')  { e.preventDefault(); show(slides.length - 1); }
+});
+
+stage.addEventListener('click', (e) => {
+  const rect = stage.getBoundingClientRect();
+  if (e.clientX > rect.left + rect.width / 2) show(current + 1);
+  else show(current - 1);
+});
+
+window.addEventListener('resize', rescale);
+rescale();
+show(0);
+</script>
+</body>
+</html>
