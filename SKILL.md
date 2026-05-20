@@ -39,8 +39,14 @@ Gather requirements before designing anything:
 Generate each slide as a **standalone HTML file**. Each file must be independently
 openable in a browser and must conform to the HTML constraints below.
 
-Recommended flexbox-based layout approach. Use the theme's colors and the template's
-structural guidance. Fill in content based on the outline.
+**Always start from the scaffold** (`scripts/scaffold.html`). Copy it for each new
+slide and fill in the content inside the root `<div>`. The scaffold provides the
+correct boilerplate: doctype, charset, viewport, body margin/overflow reset, root
+element with 1280×720 dimensions, `box-sizing:border-box`, Microsoft YaHei font,
+and `overflow:hidden`. Never write this boilerplate by hand — use the scaffold.
+
+Use flexbox for layout. Apply the theme's colors and the template's structural
+guidance. Fill in content based on the outline.
 
 Name files sequentially: `01-title.html`, `02-agenda.html`, etc.
 
@@ -96,27 +102,18 @@ them and fails fast with clear error messages on violations.
 
 The root element must be exactly **1280 × 720 pixels** (16:9 at 96 DPI).
 
-**Important**: use `box-sizing: border-box` so that padding does not expand
-the root element beyond 1280×720.
-
-```html
-<div style="width:1280px; height:720px; box-sizing:border-box; ...">
-  <!-- slide content -->
-</div>
-```
+The scaffold (`scripts/scaffold.html`) already sets this up correctly with
+`box-sizing:border-box`, `overflow:hidden`, and proper body margin/padding
+reset. Always start from the scaffold — do not write boilerplate by hand.
 
 ### Font
 
-All text must use **Microsoft YaHei** (`微软雅黑`). Set it on the root element:
-
-```html
-<div style="width:1280px; height:720px; font-family:'Microsoft YaHei', sans-serif; ...">
-```
-
-This font must be installed on the system where the conversion script runs.
-If the font is not available, work with the user to install it before proceeding.
-Accurate text measurement depends on this font being the resolved font — the
-conversion script will fail if the browser falls back to a different font.
+All text must use **Microsoft YaHei** (`微软雅黑`). The scaffold sets this on
+the root element. This font must be installed on the system where the conversion
+script runs. If the font is not available, work with the user to install it
+before proceeding. Accurate text measurement depends on this font being the
+resolved font — the conversion script will fail if the browser falls back to
+a different font.
 
 ### Allowed Elements
 
