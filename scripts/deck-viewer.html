@@ -76,16 +76,23 @@
   .nav-zone.right .nav-hint { right: 20px; }
   .nav-zone:hover .nav-hint { opacity: 1; }
 
+  /* Print mode: hide the interactive viewer, show the pre-loaded print-stack
+     iframes in a vertical flow with page breaks. The !important overrides are
+     needed because the pre-loaded iframes use inline styles (position:absolute,
+     left:-9999px) to stay offscreen during normal viewing. Ctrl+P / Cmd+P
+     produces a multi-page PDF with one slide per page. */
   @media print {
     @page { size: 1280px 720px; margin: 0; }
     html, body { background: #fff; overflow: visible; height: auto; }
     #stage, .nav-zone, #counter { display: none !important; }
     #print-stack { display: block !important; }
     #print-stack iframe {
-      width: 1280px;
-      height: 720px;
+      position: static !important;
+      left: auto !important;
+      width: 1280px !important;
+      height: 720px !important;
       page-break-after: always;
-      display: block;
+      display: block !important;
       border: none;
       pointer-events: auto;
     }
