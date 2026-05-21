@@ -95,21 +95,20 @@ the script prints actionable error messages — fix the HTML and re-run.
 
 #### PDF (pixel-perfect, for presentation)
 
-**Quick method** — open the deck viewer in a browser and print to PDF
-(Ctrl+P / Cmd+P → Save as PDF). The `@media print` styles automatically
-flatten all slides into a multi-page PDF. Text remains selectable.
+Open the deck viewer in a browser and print to PDF (Ctrl+P / Cmd+P → Save
+as PDF). The `@media print` styles automatically flatten all slides into a
+multi-page PDF with one slide per page. Text remains selectable.
 
-**Script method** — for presenter-mode PDF (opens fullscreen, one page at
-a time, arrow keys to navigate):
+To make the PDF open in **presenter mode** (fullscreen, one page at a time,
+arrow keys to navigate), patch the PDF catalog after saving:
 
 ```bash
-node <skill-path>/scripts/html-to-pdf.js --output presentation.pdf 01-title.html 02-agenda.html ...
+sed -i 's|/Type /Catalog|/Type /Catalog /PageLayout /SinglePage /PageMode /FullScreen|' presentation.pdf
 ```
 
-Each slide is rendered to a vector PDF page with full visual fidelity. The
-PDF is configured with `PageLayout: SinglePage` and `PageMode: FullScreen`,
-so PDF viewers (Acrobat, Preview, Evince) display it in presentation mode.
-This is the recommended format for presenting directly from a laptop.
+This works because Puppeteer/Chromium PDFs store the catalog in plain text.
+PDF viewers (Acrobat, Preview, Evince) will then open the file fullscreen
+in slide-navigation mode.
 
 ## HTML Slide Constraints
 
