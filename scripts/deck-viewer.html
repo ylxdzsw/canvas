@@ -6,7 +6,7 @@
 <title>Slide Deck Viewer</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a1a; touch-action: none; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a1a; touch-action: pan-y; }
   body { display: flex; flex-direction: column; align-items: center; justify-content: center; }
 
   #stage {
@@ -115,6 +115,14 @@ slides.forEach((src, i) => {
   iframes.push(iframe);
 });
 
+// Pre-populate print stack with all slides so they're loaded before print triggers
+slides.forEach(src => {
+  const f = document.createElement('iframe');
+  f.src = src;
+  f.style.cssText = 'position:absolute;left:-9999px;width:1280px;height:720px;border:none;';
+  printStack.appendChild(f);
+});
+
 function show(index) {
   if (index < 0 || index >= slides.length) return;
   iframes[current].classList.remove('active');
@@ -142,37 +150,28 @@ document.addEventListener('keydown', (e) => {
 document.getElementById('navL').addEventListener('click', () => show(current - 1));
 document.getElementById('navR').addEventListener('click', () => show(current + 1));
 
-// Touch/swipe navigation
+// Touch/swipe navigation (single-finger only)
+let touchId = null;
 let touchStartX = 0;
 let touchStartY = 0;
 document.addEventListener('touchstart', (e) => {
-  touchStartX = e.changedTouches[0].clientX;
-  touchStartY = e.changedTouches[0].clientY;
+  if (e.touches.length !== 1) return;
+  touchId = e.touches[0].identifier;
+  touchStartX = e.touches[0].clientX;
+  touchStartY = e.touches[0].clientY;
 }, { passive: true });
 document.addEventListener('touchend', (e) => {
-  const dx = e.changedTouches[0].clientX - touchStartX;
-  const dy = e.changedTouches[0].clientY - touchStartY;
+  const touch = Array.from(e.changedTouches).find(t => t.identifier === touchId);
+  if (!touch) return;
+  touchId = null;
+  const dx = touch.clientX - touchStartX;
+  const dy = touch.clientY - touchStartY;
   if (Math.abs(dx) < 40 || Math.abs(dy) > Math.abs(dx)) return;
   if (dx < 0) show(current + 1);
   else show(current - 1);
 }, { passive: true });
 
 window.addEventListener('resize', rescale);
-
-// Print: flatten all iframes so browser prints every slide
-window.addEventListener('beforeprint', () => {
-  printStack.innerHTML = '';
-  slides.forEach(src => {
-    const f = document.createElement('iframe');
-    f.src = src;
-    printStack.appendChild(f);
-  });
-  printStack.style.display = 'block';
-});
-window.addEventListener('afterprint', () => {
-  printStack.innerHTML = '';
-  printStack.style.display = 'none';
-});
 
 rescale();
 show(0);

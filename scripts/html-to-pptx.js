@@ -8,6 +8,7 @@ const SLIDE_W = 1280;
 const SLIDE_H = 720;
 const PX_PER_INCH = 96;
 const SINGLE_LINE_WIDTH_BUFFER = 1.05;
+const RESOURCE_LOAD_TIMEOUT = 8000;
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -53,14 +54,15 @@ function validatePageDOM() {
     errors.push(`Root element is ${Math.round(rect.width)}x${Math.round(rect.height)}, must be 1280x720.`);
   }
 
-  const rootOverflow = window.getComputedStyle(root).overflow;
-  if (rootOverflow !== "hidden" && rootOverflow !== "clip") {
-    if (root.scrollWidth > Math.round(rect.width) + 1) {
-      errors.push(`Content overflows horizontally: scrollWidth=${root.scrollWidth}px > width=${Math.round(rect.width)}px. Add overflow:hidden or reduce content.`);
-    }
-    if (root.scrollHeight > Math.round(rect.height) + 1) {
-      errors.push(`Content overflows vertically: scrollHeight=${root.scrollHeight}px > height=${Math.round(rect.height)}px. Add overflow:hidden or reduce content.`);
-    }
+  // Overflow detection — check each axis independently
+  const rootCS = window.getComputedStyle(root);
+  const ovX = rootCS.overflowX;
+  const ovY = rootCS.overflowY;
+  if (ovX !== "hidden" && ovX !== "clip" && root.scrollWidth > Math.round(rect.width) + 1) {
+    errors.push(`Content overflows horizontally: scrollWidth=${root.scrollWidth}px > width=${Math.round(rect.width)}px. Add overflow:hidden or reduce content.`);
+  }
+  if (ovY !== "hidden" && ovY !== "clip" && root.scrollHeight > Math.round(rect.height) + 1) {
+    errors.push(`Content overflows vertically: scrollHeight=${root.scrollHeight}px > height=${Math.round(rect.height)}px. Add overflow:hidden or reduce content.`);
   }
 
   const ALLOWED = new Set([
@@ -91,7 +93,6 @@ function validatePageDOM() {
   };
   walk(root);
 
-  // Check for unsupported CSS on text elements
   const textEls = root.querySelectorAll("h1,h2,h3,h4,h5,h6,p,li,td,th,span,b,i,u");
   const warnedProps = new Set();
   for (const el of textEls) {
@@ -120,7 +121,6 @@ function validatePageDOM() {
   }
 
   // Font check
-  const rootCS = window.getComputedStyle(root);
   const declaredFont = rootCS.fontFamily;
   const firstTextEl = root.querySelector("h1,h2,h3,h4,h5,h6,p,li,td,th");
   if (firstTextEl) {
@@ -158,8 +158,9 @@ function extractTextElements() {
   const INLINE_TAGS = new Set(["SPAN", "B", "I", "U", "BR"]);
 
   const result = [];
+  const warnings = [];
   const root = document.body.firstElementChild;
-  if (!root) return result;
+  if (!root) return { elements: result, warnings };
 
   const rootRect = root.getBoundingClientRect();
 
@@ -205,9 +206,10 @@ function extractTextElements() {
         const cs = window.getComputedStyle(el);
         const tt = inheritedTransform || cs.textTransform;
         text = applyTextTransform(text, tt);
+        const fw = parseInt(cs.fontWeight, 10);
         runs.push({
           text,
-          bold: cs.fontWeight >= 700 || el.tagName === "B",
+          bold: (fw >= 700) || el.tagName === "B",
           italic: cs.fontStyle === "italic" || el.tagName === "I",
           underline: cs.textDecorationLine.includes("underline") || el.tagName === "U",
           strikethrough: cs.textDecorationLine.includes("line-through"),
@@ -223,16 +225,18 @@ function extractTextElements() {
         const cs = window.getComputedStyle(node);
         const tt = cs.textTransform !== "none" ? cs.textTransform : inheritedTransform;
         const childRuns = extractRuns(node, tt);
+        const fw = parseInt(cs.fontWeight, 10);
         for (const r of childRuns) {
           runs.push({
             text: r.text,
-            bold: r.bold || cs.fontWeight >= 700 || node.tagName === "B",
+            bold: r.bold || (fw >= 700) || node.tagName === "B",
             italic: r.italic || cs.fontStyle === "italic" || node.tagName === "I",
             underline: r.underline || cs.textDecorationLine.includes("underline") || node.tagName === "U",
             strikethrough: r.strikethrough || cs.textDecorationLine.includes("line-through"),
-            color: r.color || cs.color,
-            fontSize: r.fontSize || parseFloat(cs.fontSize),
-            letterSpacing: r.letterSpacing || parseFloat(cs.letterSpacing) || 0,
+            color: r.color !== undefined ? r.color : cs.color,
+            fontSize: r.fontSize !== undefined ? r.fontSize : parseFloat(cs.fontSize),
+            // Explicit zero from child overrides non-zero parent
+            letterSpacing: r.letterSpacing !== undefined ? r.letterSpacing : (parseFloat(cs.letterSpacing) || 0),
           });
         }
       }
@@ -251,7 +255,8 @@ function extractTextElements() {
 
       const rect = el.getBoundingClientRect();
       const cs = window.getComputedStyle(el);
-      const lineHeight = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2;
+      const fontSize = parseFloat(cs.fontSize);
+      const lineHeight = parseFloat(cs.lineHeight) || fontSize * 1.2;
       const isSingleLine = rect.height <= lineHeight * 1.5;
 
       const textTransform = cs.textTransform;
@@ -274,15 +279,24 @@ function extractTextElements() {
       }
 
       const rotation = getRotation(cs);
+      if (rotation !== 0 && rotation !== 90 && rotation !== 180 && rotation !== 270) {
+        warnings.push(`Text element "${runs[0]?.text?.slice(0, 20) || ""}" has rotation ${rotation}° which may not position accurately in PPTX. Only 0°/90°/180°/270° are reliable.`);
+      }
 
-      let x = rect.left - rootRect.left;
-      let y = rect.top - rootRect.top;
-      let w = rect.width;
-      let h = rect.height;
+      // Content-box measurement: subtract padding from bounding rect
+      const padTop = parseFloat(cs.paddingTop) || 0;
+      const padRight = parseFloat(cs.paddingRight) || 0;
+      const padBottom = parseFloat(cs.paddingBottom) || 0;
+      const padLeft = parseFloat(cs.paddingLeft) || 0;
+
+      let x = rect.left - rootRect.left + padLeft;
+      let y = rect.top - rootRect.top + padTop;
+      let w = rect.width - padLeft - padRight;
+      let h = rect.height - padTop - padBottom;
 
       if (rotation === 90 || rotation === 270) {
-        const cx = x + w / 2;
-        const cy = y + h / 2;
+        const cx = (rect.left - rootRect.left) + rect.width / 2;
+        const cy = (rect.top - rootRect.top) + rect.height / 2;
         x = cx - h / 2;
         y = cy - w / 2;
         const tmp = w;
@@ -297,13 +311,8 @@ function extractTextElements() {
         textAlign: cs.textAlign === "start" ? "left" : cs.textAlign === "end" ? "right" : cs.textAlign,
         lineHeight: parseFloat(cs.lineHeight) || undefined,
         fontFamily: cs.fontFamily.split(",")[0].trim().replace(/['"]/g, ""),
-        textIndent: parseFloat(cs.textIndent) || 0,
         marginTop: parseFloat(cs.marginTop) || 0,
         marginBottom: parseFloat(cs.marginBottom) || 0,
-        paddingTop: parseFloat(cs.paddingTop) || 0,
-        paddingBottom: parseFloat(cs.paddingBottom) || 0,
-        paddingLeft: parseFloat(cs.paddingLeft) || 0,
-        paddingRight: parseFloat(cs.paddingRight) || 0,
         runs,
         bulletType,
         bulletIndent,
@@ -317,7 +326,7 @@ function extractTextElements() {
   }
 
   walk(root);
-  return result;
+  return { elements: result, warnings };
 }
 
 // ---------------------------------------------------------------------------
@@ -347,7 +356,6 @@ function cssColorAlpha(color) {
   return 0;
 }
 
-// px to PowerPoint points (1pt = 1.333px, so pt = px * 0.75)
 function pxToPt(px) {
   return px * 0.75;
 }
@@ -388,7 +396,17 @@ async function main() {
     const fileUrl = `file://${filePath}`;
     try {
       await page.goto(fileUrl, { waitUntil: "load", timeout: 15000 });
-      await page.evaluate(() => document.fonts.ready);
+      // Wait for fonts and images, with a hard timeout to prevent hangs
+      await page.evaluate((timeout) => Promise.race([
+        Promise.all([
+          document.fonts.ready,
+          ...Array.from(document.querySelectorAll("img")).map(img =>
+            img.complete ? Promise.resolve() :
+            new Promise((resolve) => { img.onload = resolve; img.onerror = resolve; })
+          ),
+        ]),
+        new Promise(resolve => setTimeout(resolve, timeout)),
+      ]), RESOURCE_LOAD_TIMEOUT);
     } catch (e) {
       console.error(`  ✗ Failed to load ${fileName}: ${e.message}`);
       hasErrors = true;
@@ -398,8 +416,8 @@ async function main() {
 
     // --- Validate ---
     console.log("  Validating...");
-    const { errors: validationErrors, warnings } = await page.evaluate(validatePageDOM);
-    for (const w of warnings) console.warn(`  ⚠ ${w}`);
+    const { errors: validationErrors, warnings: valWarnings } = await page.evaluate(validatePageDOM);
+    for (const w of valWarnings) console.warn(`  ⚠ ${w}`);
     if (validationErrors.length > 0) {
       console.error(`  ✗ Validation failed for ${fileName}:`);
       for (const err of validationErrors) console.error(`    - ${err}`);
@@ -411,7 +429,8 @@ async function main() {
 
     // --- Extract text elements before modifying the page ---
     console.log("  Extracting text...");
-    const textElements = await page.evaluate(extractTextElements);
+    const { elements: textElements, warnings: extractWarnings } = await page.evaluate(extractTextElements);
+    for (const w of extractWarnings) console.warn(`  ⚠ ${w}`);
     console.log(`  Found ${textElements.length} text element(s)`);
 
     // --- Screenshot with transparent text ---
@@ -474,8 +493,8 @@ async function main() {
           underline: { style: run.underline ? "sng" : "none" },
           strike: run.strikethrough ? "sngStrike" : undefined,
         };
-        if (run.letterSpacing) {
-          runOpts.charSpacing = pxToPt(run.letterSpacing);
+        if (run.letterSpacing > 0) {
+          runOpts.charSpacing = Math.max(1, Math.round(pxToPt(run.letterSpacing)));
         }
         const alpha = cssColorAlpha(run.color);
         if (alpha > 0) runOpts.transparency = alpha;
@@ -483,6 +502,8 @@ async function main() {
       }
 
       if (pptxRuns.length === 0) continue;
+
+      const maxRunFontSize = Math.max(...el.runs.filter(r => !r.br).map(r => r.fontSize));
 
       const textOpts = {
         x,
@@ -494,21 +515,11 @@ async function main() {
         wrap: !el.isSingleLine,
         shrinkText: false,
         fontFace: el.fontFamily,
-        margin: [
-          pxToPt(el.paddingLeft),
-          pxToPt(el.paddingRight),
-          pxToPt(el.paddingBottom),
-          pxToPt(el.paddingTop),
-        ],
+        margin: 0,
       };
 
       if (el.lineHeight) {
-        textOpts.lineSpacingMultiple = el.lineHeight / (el.runs[0]?.fontSize || 16);
-      }
-
-      if (el.textIndent > 0) {
-        textOpts.indentLevel = 0;
-        textOpts.paraSpaceBefore = 0;
+        textOpts.lineSpacingMultiple = el.lineHeight / (maxRunFontSize || 16);
       }
 
       if (el.marginTop > 0) {
