@@ -1,0 +1,6 @@
+node_modules/
+test/output.pptx
+test/deck.pdf
+test/deck.html
+/package.json
+/package-lock.json
