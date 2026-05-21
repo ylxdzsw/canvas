@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    name: End-to-end conversion
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: scripts/package-lock.json
+
+      # The validator expects text to resolve to a Microsoft YaHei-compatible
+      # font. wqy-microhei is the canonical Linux substitute; noto-cjk covers
+      # the rest of the CJK glyph range.
+      - name: Install CJK fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            fonts-wqy-microhei \
+            fonts-noto-cjk
+          fc-cache -f
+
+      - name: Install npm dependencies
+        working-directory: scripts
+        run: npm ci
+
+      - name: Run end-to-end test
+        run: scripts/test-e2e.sh
+
+      - name: Upload generated PPTX
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: output-pptx
+          path: test/output.pptx
+          if-no-files-found: ignore
