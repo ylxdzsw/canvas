@@ -73,9 +73,9 @@ the reference slides.
 
 ## Design philosophy
 
-See [`DESIGN.md`](./DESIGN.md) for the long story: why HTML, why a
-screenshot, why markdown themes, what's deliberately out of scope.
+The agent's job is design, not bookkeeping. The skill removes the
+bookkeeping — boilerplate, conversion, validation, preview — so the agent
+can spend its tokens on the slides.
 
-The short version: the agent's job is design, not bookkeeping. The skill
-removes the bookkeeping (boilerplate, conversion, validation, preview) so
-the agent can spend its tokens on the slides.
+`SKILL.md` is the contract the agent reads; everything else in this repo
+exists to make that contract easy to honor.
