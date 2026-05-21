@@ -41,10 +41,11 @@ function parseArgs(argv) {
 
 function validatePageDOM() {
   const errors = [];
+  const warnings = [];
   const root = document.body.firstElementChild;
   if (!root) {
     errors.push("No root element found in <body>.");
-    return errors;
+    return { errors, warnings };
   }
 
   const rect = root.getBoundingClientRect();
@@ -52,14 +53,13 @@ function validatePageDOM() {
     errors.push(`Root element is ${Math.round(rect.width)}x${Math.round(rect.height)}, must be 1280x720.`);
   }
 
-  // Overflow detection (only when overflow is visible)
   const rootOverflow = window.getComputedStyle(root).overflow;
   if (rootOverflow !== "hidden" && rootOverflow !== "clip") {
     if (root.scrollWidth > Math.round(rect.width) + 1) {
-      errors.push(`Content overflows horizontally: scrollWidth=${root.scrollWidth}px > width=${Math.round(rect.width)}px. Add overflow:hidden to the root element or reduce content.`);
+      errors.push(`Content overflows horizontally: scrollWidth=${root.scrollWidth}px > width=${Math.round(rect.width)}px. Add overflow:hidden or reduce content.`);
     }
     if (root.scrollHeight > Math.round(rect.height) + 1) {
-      errors.push(`Content overflows vertically: scrollHeight=${root.scrollHeight}px > height=${Math.round(rect.height)}px. Add overflow:hidden to the root element or reduce content.`);
+      errors.push(`Content overflows vertically: scrollHeight=${root.scrollHeight}px > height=${Math.round(rect.height)}px. Add overflow:hidden or reduce content.`);
     }
   }
 
@@ -91,6 +91,35 @@ function validatePageDOM() {
   };
   walk(root);
 
+  // Check for unsupported CSS on text elements
+  const textEls = root.querySelectorAll("h1,h2,h3,h4,h5,h6,p,li,td,th,span,b,i,u");
+  const warnedProps = new Set();
+  for (const el of textEls) {
+    const cs = window.getComputedStyle(el);
+    if (cs.textShadow && cs.textShadow !== "none" && !warnedProps.has("text-shadow")) {
+      warnings.push(`text-shadow is not supported in PPTX text and will be lost.`);
+      warnedProps.add("text-shadow");
+    }
+    if (cs.webkitBackgroundClip === "text" && !warnedProps.has("background-clip")) {
+      warnings.push(`background-clip:text is not supported in PPTX and will cause artifacts.`);
+      warnedProps.add("background-clip");
+    }
+    const stroke = cs.webkitTextStroke || cs.webkitTextStrokeWidth || "";
+    if (stroke && !stroke.startsWith("0") && !warnedProps.has("text-stroke")) {
+      warnings.push(`-webkit-text-stroke is not supported in PPTX and will cause artifacts.`);
+      warnedProps.add("text-stroke");
+    }
+    if (cs.fontVariant && cs.fontVariant !== "normal" && !warnedProps.has("font-variant")) {
+      warnings.push(`font-variant:${cs.fontVariant} cannot be mapped to PPTX.`);
+      warnedProps.add("font-variant");
+    }
+    if (cs.writingMode && cs.writingMode !== "horizontal-tb" && !warnedProps.has("writing-mode")) {
+      warnings.push(`writing-mode:${cs.writingMode} is not supported; use CSS transform:rotate() instead.`);
+      warnedProps.add("writing-mode");
+    }
+  }
+
+  // Font check
   const rootCS = window.getComputedStyle(root);
   const declaredFont = rootCS.fontFamily;
   const firstTextEl = root.querySelector("h1,h2,h3,h4,h5,h6,p,li,td,th");
@@ -115,7 +144,7 @@ function validatePageDOM() {
     }
   }
 
-  return errors;
+  return { errors, warnings };
 }
 
 // ---------------------------------------------------------------------------
@@ -181,8 +210,10 @@ function extractTextElements() {
           bold: cs.fontWeight >= 700 || el.tagName === "B",
           italic: cs.fontStyle === "italic" || el.tagName === "I",
           underline: cs.textDecorationLine.includes("underline") || el.tagName === "U",
+          strikethrough: cs.textDecorationLine.includes("line-through"),
           color: cs.color,
           fontSize: parseFloat(cs.fontSize),
+          letterSpacing: parseFloat(cs.letterSpacing) || 0,
         });
       } else if (node.nodeType === Node.ELEMENT_NODE && INLINE_TAGS.has(node.tagName)) {
         if (node.tagName === "BR") {
@@ -198,8 +229,10 @@ function extractTextElements() {
             bold: r.bold || cs.fontWeight >= 700 || node.tagName === "B",
             italic: r.italic || cs.fontStyle === "italic" || node.tagName === "I",
             underline: r.underline || cs.textDecorationLine.includes("underline") || node.tagName === "U",
+            strikethrough: r.strikethrough || cs.textDecorationLine.includes("line-through"),
             color: r.color || cs.color,
             fontSize: r.fontSize || parseFloat(cs.fontSize),
+            letterSpacing: r.letterSpacing || parseFloat(cs.letterSpacing) || 0,
           });
         }
       }
@@ -247,7 +280,6 @@ function extractTextElements() {
       let w = rect.width;
       let h = rect.height;
 
-      // For 90°/270° rotations, swap dimensions for PowerPoint
       if (rotation === 90 || rotation === 270) {
         const cx = x + w / 2;
         const cy = y + h / 2;
@@ -262,9 +294,16 @@ function extractTextElements() {
         tag: el.tagName,
         x, y, w, h,
         isSingleLine,
-        textAlign: cs.textAlign,
+        textAlign: cs.textAlign === "start" ? "left" : cs.textAlign === "end" ? "right" : cs.textAlign,
         lineHeight: parseFloat(cs.lineHeight) || undefined,
         fontFamily: cs.fontFamily.split(",")[0].trim().replace(/['"]/g, ""),
+        textIndent: parseFloat(cs.textIndent) || 0,
+        marginTop: parseFloat(cs.marginTop) || 0,
+        marginBottom: parseFloat(cs.marginBottom) || 0,
+        paddingTop: parseFloat(cs.paddingTop) || 0,
+        paddingBottom: parseFloat(cs.paddingBottom) || 0,
+        paddingLeft: parseFloat(cs.paddingLeft) || 0,
+        paddingRight: parseFloat(cs.paddingRight) || 0,
         runs,
         bulletType,
         bulletIndent,
@@ -308,6 +347,11 @@ function cssColorAlpha(color) {
   return 0;
 }
 
+// px to PowerPoint points (1pt = 1.333px, so pt = px * 0.75)
+function pxToPt(px) {
+  return px * 0.75;
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -344,7 +388,7 @@ async function main() {
     const fileUrl = `file://${filePath}`;
     try {
       await page.goto(fileUrl, { waitUntil: "load", timeout: 15000 });
-      await new Promise(r => setTimeout(r, 500));
+      await page.evaluate(() => document.fonts.ready);
     } catch (e) {
       console.error(`  ✗ Failed to load ${fileName}: ${e.message}`);
       hasErrors = true;
@@ -354,7 +398,8 @@ async function main() {
 
     // --- Validate ---
     console.log("  Validating...");
-    const validationErrors = await page.evaluate(validatePageDOM);
+    const { errors: validationErrors, warnings } = await page.evaluate(validatePageDOM);
+    for (const w of warnings) console.warn(`  ⚠ ${w}`);
     if (validationErrors.length > 0) {
       console.error(`  ✗ Validation failed for ${fileName}:`);
       for (const err of validationErrors) console.error(`    - ${err}`);
@@ -420,20 +465,21 @@ async function main() {
           pptxRuns.push({ text: "\n" });
           continue;
         }
-        const opts = {
-          text: run.text,
-          options: {
-            fontFace: el.fontFamily,
-            fontSize: Math.round(run.fontSize * 0.75),
-            color: cssColorToHex(run.color),
-            bold: run.bold,
-            italic: run.italic,
-            underline: { style: run.underline ? "sng" : "none" },
-          },
+        const runOpts = {
+          fontFace: el.fontFamily,
+          fontSize: Math.round(run.fontSize * 0.75),
+          color: cssColorToHex(run.color),
+          bold: run.bold,
+          italic: run.italic,
+          underline: { style: run.underline ? "sng" : "none" },
+          strike: run.strikethrough ? "sngStrike" : undefined,
         };
+        if (run.letterSpacing) {
+          runOpts.charSpacing = pxToPt(run.letterSpacing);
+        }
         const alpha = cssColorAlpha(run.color);
-        if (alpha > 0) opts.options.transparency = alpha;
-        pptxRuns.push(opts);
+        if (alpha > 0) runOpts.transparency = alpha;
+        pptxRuns.push({ text: run.text, options: runOpts });
       }
 
       if (pptxRuns.length === 0) continue;
@@ -443,16 +489,33 @@ async function main() {
         y,
         w: Math.min(w, SLIDE_W / PX_PER_INCH - x),
         h,
-        margin: 0,
         valign: "top",
         align: el.textAlign === "center" ? "center" : el.textAlign === "right" ? "right" : "left",
         wrap: !el.isSingleLine,
         shrinkText: false,
         fontFace: el.fontFamily,
+        margin: [
+          pxToPt(el.paddingLeft),
+          pxToPt(el.paddingRight),
+          pxToPt(el.paddingBottom),
+          pxToPt(el.paddingTop),
+        ],
       };
 
       if (el.lineHeight) {
         textOpts.lineSpacingMultiple = el.lineHeight / (el.runs[0]?.fontSize || 16);
+      }
+
+      if (el.textIndent > 0) {
+        textOpts.indentLevel = 0;
+        textOpts.paraSpaceBefore = 0;
+      }
+
+      if (el.marginTop > 0) {
+        textOpts.paraSpaceBefore = pxToPt(el.marginTop);
+      }
+      if (el.marginBottom > 0) {
+        textOpts.paraSpaceAfter = pxToPt(el.marginBottom);
       }
 
       if (el.bulletType === "bullet") {

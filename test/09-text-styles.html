@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280">
+</head>
+<body>
+<div id="slide" style="width:1280px; height:720px; box-sizing:border-box; overflow:hidden;
+            font-family:'WenQuanYi Micro Hei','Microsoft YaHei',sans-serif;
+            display:flex; flex-direction:column; padding:50px 80px;
+            background:#FFFFFF;">
+  <h1 style="font-size:28px; color:#003A70; font-weight:bold; margin-bottom:24px;">
+    文本样式支持测试
+  </h1>
+
+  <div style="display:flex; gap:40px; flex:1;">
+    <div style="flex:1; display:flex; flex-direction:column; gap:12px;">
+      <h2 style="font-size:18px; color:#003A70; margin-bottom:4px;">内联格式</h2>
+      <p style="font-size:15px; color:#1A1A2E;">
+        普通文本，<b>粗体文本</b>，<i>斜体文本</i>，<u>下划线文本</u>，<span style="text-decoration:line-through;">删除线文本</span>
+      </p>
+      <p style="font-size:15px; color:#1A1A2E;">
+        <span style="color:#CE0E2D;">红色</span>文本和<span style="color:#0078D4; font-weight:bold;">蓝色粗体</span>混合
+      </p>
+      <p style="font-size:15px; color:#1A1A2E; letter-spacing:4px;">
+        字 间 距 加 宽 的 文 本
+      </p>
+      <p style="font-size:15px; color:#1A1A2E; text-transform:uppercase;">
+        uppercase text transform
+      </p>
+    </div>
+
+    <div style="flex:1; display:flex; flex-direction:column; gap:12px;">
+      <h2 style="font-size:18px; color:#003A70; margin-bottom:4px;">段落样式</h2>
+      <p style="font-size:15px; color:#1A1A2E; text-align:left;">左对齐文本</p>
+      <p style="font-size:15px; color:#1A1A2E; text-align:center;">居中对齐文本</p>
+      <p style="font-size:15px; color:#1A1A2E; text-align:right;">右对齐文本</p>
+      <p style="font-size:15px; color:#1A1A2E; line-height:2.0;">
+        行高2.0的段落文本。这段文字有两行，用来测试行间距在PPTX中的映射效果。
+      </p>
+      <p style="font-size:15px; color:#1A1A2E; text-indent:40px;">
+        首行缩进40px的段落。后续文本正常排列，用于验证text-indent到PPTX的映射。
+      </p>
+    </div>
+
+    <div style="flex:1; display:flex; flex-direction:column; gap:12px;">
+      <h2 style="font-size:18px; color:#003A70; margin-bottom:4px;">段落间距</h2>
+      <p style="font-size:15px; color:#1A1A2E; margin-bottom:20px;">
+        下方有20px间距的段落
+      </p>
+      <p style="font-size:15px; color:#1A1A2E; margin-top:20px;">
+        上方有20px间距的段落
+      </p>
+      <p style="font-size:15px; color:#1A1A2E; padding:10px; background:rgba(0,58,112,0.05); border-radius:4px;">
+        带内边距的段落（padding:10px）
+      </p>
+      <p style="font-size:15px; color:rgba(26,26,46,0.5);">
+        半透明文本（alpha 0.5）
+      </p>
+    </div>
+  </div>
+
+  <p style="font-size:12px; color:#5A6A7A; margin-top:16px; text-align:center;">
+    <span style="letter-spacing:2px;">此页测试：粗体 · 斜体 · 下划线 · 删除线 · 颜色 · 字间距 · 大小写转换 · 对齐 · 行高 · 缩进 · 段间距 · 内边距 · 透明度</span>
+  </p>
+</div>
+</body>
+</html>

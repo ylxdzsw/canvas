@@ -33,11 +33,6 @@ Gather requirements before designing anything:
    ...
    ```
 3. Get user confirmation on the outline before proceeding.
-4. **For decks ≥ 5 slides**: build 2 showcase slides first (pick the two most
-   visually distinct types, e.g. title + content-bullets, or section-transition +
-   data-table). Screenshot and show them to the user to confirm the visual
-   direction. Only after approval, batch-produce the remaining slides. This avoids
-   reworking N slides when the direction is wrong — you rework 2 instead.
 
 ### Step 3 — Build
 
