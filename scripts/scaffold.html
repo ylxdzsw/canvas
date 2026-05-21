@@ -3,9 +3,29 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=1280">
+<style>
+  html, body { margin:0; padding:0; overflow:hidden; background:#000; height:100%; }
+  #slide {
+    width:1280px; height:720px; box-sizing:border-box;
+    font-family:'Microsoft YaHei',sans-serif;
+    overflow:hidden; transform-origin:top left;
+  }
+</style>
+<script>
+  function fit() {
+    var s = document.getElementById('slide');
+    if (!s) return;
+    var scale = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
+    var x = (window.innerWidth - 1280 * scale) / 2;
+    var y = (window.innerHeight - 720 * scale) / 2;
+    s.style.transform = 'translate(' + x + 'px,' + y + 'px) scale(' + scale + ')';
+  }
+  window.addEventListener('resize', fit);
+  window.addEventListener('DOMContentLoaded', fit);
+</script>
 </head>
-<body style="margin:0; padding:0; overflow:hidden;">
-<div style="width:1280px; height:720px; box-sizing:border-box; font-family:'Microsoft YaHei',sans-serif; overflow:hidden;">
+<body>
+<div id="slide">
   <!-- slide content here -->
 </div>
 </body>

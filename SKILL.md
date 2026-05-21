@@ -33,6 +33,11 @@ Gather requirements before designing anything:
    ...
    ```
 3. Get user confirmation on the outline before proceeding.
+4. **For decks ≥ 5 slides**: build 2 showcase slides first (pick the two most
+   visually distinct types, e.g. title + content-bullets, or section-transition +
+   data-table). Screenshot and show them to the user to confirm the visual
+   direction. Only after approval, batch-produce the remaining slides. This avoids
+   reworking N slides when the direction is wrong — you rework 2 instead.
 
 ### Step 3 — Build
 
@@ -204,3 +209,37 @@ Template files are in `templates/`. Each describes a slide archetype by its
 
 Each template includes purpose, structure description, HTML sketch, and usage notes.
 Adapt the sketch to the chosen theme's colors and typography.
+
+## Design Quality Guardrails
+
+Avoid generic AI-default visual patterns that make slides look templated and
+brandless. Every visual choice should be intentional.
+
+### Avoid
+
+- **Gratuitous gradients**: purple-to-pink full-bleed backgrounds are the
+  universal "AI made this" signal. Use gradients only when the theme calls for
+  them, and keep them subtle and single-hue.
+- **Emoji as icons**: ✨🚀💡 in headings or bullet points looks unprofessional.
+  Use text or leave clean.
+- **Filler content**: fabricated statistics ("10,000+ users"), fake quotes, or
+  decorative metric cards with no real data. If data is missing, leave a
+  placeholder and ask the user.
+- **Overuse of decoration**: not every heading needs an icon, not every section
+  needs a colored border accent. Give content room to breathe.
+- **Uniform slides**: if every slide looks the same, the deck has no visual
+  rhythm. Alternate between text-heavy and visual-heavy slides, vary background
+  colors, and use section transitions to create pacing.
+
+### Prefer
+
+- **Theme colors only**: stick to the chosen theme's palette. Do not invent
+  new colors mid-deck.
+- **Action titles**: h1 should be a takeaway sentence ("Revenue grew 23%"),
+  not a topic label ("Revenue").
+- **Whitespace**: an empty area is a design feature, not a problem to fill.
+- **One message per slide**: if a slide has two distinct points, split it.
+- **Visual rhythm**: mix text-heavy, image-heavy, and data-heavy slides. Use
+  section transitions to signal topic shifts.
+- **Honest placeholders**: a gray rectangle labeled "product image needed" is
+  better than a random stock photo or a crude SVG drawing.

@@ -9,7 +9,6 @@ const SLIDE_H = 720;
 const PX_PER_INCH = 96;
 const SINGLE_LINE_WIDTH_BUFFER = 1.05;
 
-
 // ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
@@ -53,6 +52,17 @@ function validatePageDOM() {
     errors.push(`Root element is ${Math.round(rect.width)}x${Math.round(rect.height)}, must be 1280x720.`);
   }
 
+  // Overflow detection (only when overflow is visible)
+  const rootOverflow = window.getComputedStyle(root).overflow;
+  if (rootOverflow !== "hidden" && rootOverflow !== "clip") {
+    if (root.scrollWidth > Math.round(rect.width) + 1) {
+      errors.push(`Content overflows horizontally: scrollWidth=${root.scrollWidth}px > width=${Math.round(rect.width)}px. Add overflow:hidden to the root element or reduce content.`);
+    }
+    if (root.scrollHeight > Math.round(rect.height) + 1) {
+      errors.push(`Content overflows vertically: scrollHeight=${root.scrollHeight}px > height=${Math.round(rect.height)}px. Add overflow:hidden to the root element or reduce content.`);
+    }
+  }
+
   const ALLOWED = new Set([
     "DIV", "TABLE", "TR", "TD", "TH", "TBODY", "THEAD", "TFOOT",
     "H1", "H2", "H3", "H4", "H5", "H6", "P", "LI",
@@ -86,8 +96,6 @@ function validatePageDOM() {
   const firstTextEl = root.querySelector("h1,h2,h3,h4,h5,h6,p,li,td,th");
   if (firstTextEl) {
     const resolvedFont = window.getComputedStyle(firstTextEl).fontFamily;
-    // Detect if the browser fell back to a generic font not matching the declared one.
-    // The resolved fontFamily should contain at least one of the declared families.
     const declared = declaredFont.split(",").map(f => f.trim().replace(/['"]/g, "").toLowerCase());
     const resolved = resolvedFont.split(",").map(f => f.trim().replace(/['"]/g, "").toLowerCase());
     const genericFonts = new Set(["serif", "sans-serif", "monospace", "cursive", "fantasy", "system-ui"]);
@@ -126,6 +134,31 @@ function extractTextElements() {
 
   const rootRect = root.getBoundingClientRect();
 
+  function applyTextTransform(text, transform) {
+    if (!transform || transform === "none") return text;
+    if (transform === "uppercase") return text.toUpperCase();
+    if (transform === "lowercase") return text.toLowerCase();
+    if (transform === "capitalize") return text.replace(/\b\w/g, c => c.toUpperCase());
+    return text;
+  }
+
+  function getRotation(cs) {
+    const transform = cs.transform;
+    if (!transform || transform === "none") return 0;
+    const m = transform.match(/matrix\(([^)]+)\)/);
+    if (m) {
+      const values = m[1].split(",").map(parseFloat);
+      const angle = Math.round(Math.atan2(values[1], values[0]) * (180 / Math.PI));
+      return ((angle % 360) + 360) % 360;
+    }
+    const r = transform.match(/rotate\(([-\d.]+)deg\)/);
+    if (r) {
+      const angle = Math.round(parseFloat(r[1]));
+      return ((angle % 360) + 360) % 360;
+    }
+    return 0;
+  }
+
   function hasTextElementDescendant(el) {
     for (const child of el.children) {
       if (TEXT_ELEMENTS.has(child.tagName)) return true;
@@ -134,13 +167,15 @@ function extractTextElements() {
     return false;
   }
 
-  function extractRuns(el) {
+  function extractRuns(el, inheritedTransform) {
     const runs = [];
     for (const node of el.childNodes) {
       if (node.nodeType === Node.TEXT_NODE) {
-        const text = node.textContent.replace(/\s+/g, " ");
+        let text = node.textContent.replace(/\s+/g, " ");
         if (text.length === 0 || text === " ") continue;
         const cs = window.getComputedStyle(el);
+        const tt = inheritedTransform || cs.textTransform;
+        text = applyTextTransform(text, tt);
         runs.push({
           text,
           bold: cs.fontWeight >= 700 || el.tagName === "B",
@@ -154,8 +189,9 @@ function extractTextElements() {
           runs.push({ text: "\n", br: true });
           continue;
         }
-        const childRuns = extractRuns(node);
         const cs = window.getComputedStyle(node);
+        const tt = cs.textTransform !== "none" ? cs.textTransform : inheritedTransform;
+        const childRuns = extractRuns(node, tt);
         for (const r of childRuns) {
           runs.push({
             text: r.text,
@@ -185,7 +221,8 @@ function extractTextElements() {
       const lineHeight = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2;
       const isSingleLine = rect.height <= lineHeight * 1.5;
 
-      const runs = extractRuns(el);
+      const textTransform = cs.textTransform;
+      const runs = extractRuns(el, textTransform !== "none" ? textTransform : null);
       if (runs.length > 0 && !runs[0].br) runs[0].text = runs[0].text.replace(/^\s+/, "");
       if (runs.length > 0 && !runs[runs.length - 1].br) runs[runs.length - 1].text = runs[runs.length - 1].text.replace(/\s+$/, "");
       if (runs.length === 0 || runs.every(r => r.br || r.text.trim() === "")) return;
@@ -203,12 +240,27 @@ function extractTextElements() {
         }
       }
 
+      const rotation = getRotation(cs);
+
+      let x = rect.left - rootRect.left;
+      let y = rect.top - rootRect.top;
+      let w = rect.width;
+      let h = rect.height;
+
+      // For 90°/270° rotations, swap dimensions for PowerPoint
+      if (rotation === 90 || rotation === 270) {
+        const cx = x + w / 2;
+        const cy = y + h / 2;
+        x = cx - h / 2;
+        y = cy - w / 2;
+        const tmp = w;
+        w = h;
+        h = tmp;
+      }
+
       result.push({
         tag: el.tagName,
-        x: rect.left - rootRect.left,
-        y: rect.top - rootRect.top,
-        w: rect.width,
-        h: rect.height,
+        x, y, w, h,
         isSingleLine,
         textAlign: cs.textAlign,
         lineHeight: parseFloat(cs.lineHeight) || undefined,
@@ -217,6 +269,7 @@ function extractTextElements() {
         bulletType,
         bulletIndent,
         bulletStartAt,
+        rotation: rotation || undefined,
       });
       return;
     }
@@ -289,7 +342,15 @@ async function main() {
     await page.setViewport({ width: SLIDE_W, height: SLIDE_H, deviceScaleFactor: 2 });
 
     const fileUrl = `file://${filePath}`;
-    await page.goto(fileUrl, { waitUntil: "networkidle0", timeout: 30000 });
+    try {
+      await page.goto(fileUrl, { waitUntil: "load", timeout: 15000 });
+      await new Promise(r => setTimeout(r, 500));
+    } catch (e) {
+      console.error(`  ✗ Failed to load ${fileName}: ${e.message}`);
+      hasErrors = true;
+      await page.close();
+      continue;
+    }
 
     // --- Validate ---
     console.log("  Validating...");
@@ -334,12 +395,24 @@ async function main() {
     slide.background = { data: `image/png;base64,${bgBase64}` };
 
     for (const el of textElements) {
-      const x = el.x / PX_PER_INCH;
-      const y = el.y / PX_PER_INCH;
+      let x = el.x / PX_PER_INCH;
+      let y = el.y / PX_PER_INCH;
       let w = el.w / PX_PER_INCH;
       const h = el.h / PX_PER_INCH;
 
-      if (el.isSingleLine) w *= SINGLE_LINE_WIDTH_BUFFER;
+      if (el.isSingleLine) {
+        const extra = w * (SINGLE_LINE_WIDTH_BUFFER - 1);
+        const align = el.textAlign;
+        if (align === "center") {
+          x -= extra / 2;
+          w += extra;
+        } else if (align === "right") {
+          x -= extra;
+          w += extra;
+        } else {
+          w += extra;
+        }
+      }
 
       const pptxRuns = [];
       for (const run of el.runs) {
@@ -386,6 +459,10 @@ async function main() {
         textOpts.bullet = true;
       } else if (el.bulletType === "number") {
         textOpts.bullet = { type: "number", startAt: el.bulletStartAt };
+      }
+
+      if (el.rotation) {
+        textOpts.rotate = el.rotation;
       }
 
       slide.addText(pptxRuns, textOpts);

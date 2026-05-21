@@ -13,7 +13,7 @@
     position: relative;
     width: 1280px;
     height: 720px;
-    transform-origin: center center;
+    transform-origin: top left;
     background: #000;
     box-shadow: 0 4px 40px rgba(0,0,0,0.5);
   }
@@ -30,28 +30,70 @@
   #stage iframe.active { display: block; }
 
   #counter {
-    margin-top: 16px;
-    color: #888;
-    font-family: system-ui, sans-serif;
-    font-size: 14px;
-    user-select: none;
-  }
-
-  #hint {
     position: fixed;
-    bottom: 16px;
-    color: #555;
+    bottom: 20px;
+    right: 20px;
+    background: rgba(0,0,0,0.65);
+    color: #fff;
+    padding: 6px 14px;
+    border-radius: 999px;
     font-family: system-ui, sans-serif;
-    font-size: 12px;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
     user-select: none;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+    z-index: 100;
+  }
+  #counter:hover { opacity: 1; }
+
+  .nav-zone {
+    position: fixed;
+    top: 0; bottom: 0;
+    width: 15%;
+    cursor: pointer;
+    z-index: 50;
+  }
+  .nav-zone.left  { left: 0; }
+  .nav-zone.right { right: 0; }
+  .nav-hint {
+    position: absolute;
+    top: 50%; transform: translateY(-50%);
+    width: 44px; height: 44px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.08);
+    color: rgba(255,255,255,0.6);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .nav-zone.left  .nav-hint { left: 20px; }
+  .nav-zone.right .nav-hint { right: 20px; }
+  .nav-zone:hover .nav-hint { opacity: 1; }
+
+  @media print {
+    @page { size: 1280px 720px; margin: 0; }
+    html, body { background: #fff; overflow: visible; height: auto; }
+    #stage, .nav-zone, #counter { display: none !important; }
+    #print-stack { display: block !important; }
+    #print-stack iframe {
+      width: 1280px;
+      height: 720px;
+      page-break-after: always;
+      display: block;
+      border: none;
+    }
   }
 </style>
 </head>
 <body>
 
 <div id="stage"></div>
+<div class="nav-zone left" id="navL"><div class="nav-hint">‹</div></div>
+<div class="nav-zone right" id="navR"><div class="nav-hint">›</div></div>
 <div id="counter"></div>
-<div id="hint">← → Arrow keys to navigate</div>
+<div id="print-stack" style="display:none;"></div>
 
 <script>
 const slides = [/* SLIDE_LIST */];
@@ -59,6 +101,7 @@ const slides = [/* SLIDE_LIST */];
 let current = 0;
 const stage = document.getElementById('stage');
 const counter = document.getElementById('counter');
+const printStack = document.getElementById('print-stack');
 const iframes = [];
 
 slides.forEach((src, i) => {
@@ -80,25 +123,45 @@ function show(index) {
 
 function rescale() {
   const ww = window.innerWidth;
-  const wh = window.innerHeight - 60;
-  const scale = Math.min(ww / 1280, wh / 720, 1);
-  stage.style.transform = 'scale(' + scale + ')';
+  const wh = window.innerHeight;
+  const scale = Math.min(ww / 1280, wh / 720);
+  const x = (ww - 1280 * scale) / 2;
+  const y = (wh - 720 * scale) / 2;
+  stage.style.transform = 'translate(' + x + 'px,' + y + 'px) scale(' + scale + ')';
 }
 
+// Reclaim focus when user clicks inside an iframe
+window.addEventListener('blur', () => {
+  setTimeout(() => window.focus(), 100);
+});
+
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); show(current + 1); }
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') { e.preventDefault(); show(current + 1); }
   if (e.key === 'ArrowLeft' || e.key === 'ArrowUp')    { e.preventDefault(); show(current - 1); }
   if (e.key === 'Home') { e.preventDefault(); show(0); }
   if (e.key === 'End')  { e.preventDefault(); show(slides.length - 1); }
 });
 
-stage.addEventListener('click', (e) => {
-  const rect = stage.getBoundingClientRect();
-  if (e.clientX > rect.left + rect.width / 2) show(current + 1);
-  else show(current - 1);
-});
+document.getElementById('navL').addEventListener('click', () => show(current - 1));
+document.getElementById('navR').addEventListener('click', () => show(current + 1));
 
 window.addEventListener('resize', rescale);
+
+// Print: flatten all iframes so browser prints every slide
+window.addEventListener('beforeprint', () => {
+  printStack.innerHTML = '';
+  slides.forEach(src => {
+    const f = document.createElement('iframe');
+    f.src = src;
+    printStack.appendChild(f);
+  });
+  printStack.style.display = 'block';
+});
+window.addEventListener('afterprint', () => {
+  printStack.innerHTML = '';
+  printStack.style.display = 'none';
+});
+
 rescale();
 show(0);
 </script>
