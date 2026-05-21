@@ -8,6 +8,7 @@
     "convert": "node html-to-pptx.js"
   },
   "dependencies": {
+    "pdf-lib": "^1.17.1",
     "pptxgenjs": "^4.0.1",
     "puppeteer": "^24.9.0"
   }

@@ -1,13 +1,40 @@
 #!/usr/bin/env node
 
+/**
+ * HTML → PPTX converter using a two-layer approach:
+ *
+ * 1. VISUAL LAYER: render slide in Puppeteer with text made transparent,
+ *    screenshot the result → becomes the slide background image. This captures
+ *    all CSS visuals (gradients, shadows, borders, images) with perfect fidelity,
+ *    bypassing the need to reconstruct CSS as PPTX shapes.
+ *
+ * 2. TEXT LAYER: measure each text element's bounding box and computed styles
+ *    via DOM APIs → create native pptxgenjs text boxes at those positions.
+ *    Text remains searchable, selectable, and editable in PowerPoint.
+ *
+ * This approach was chosen over DOM-to-PPTX element reconstruction (as used
+ * by huashu-design's html2pptx.js) because reconstruction requires strict HTML
+ * constraints (no gradients, no backgrounds on text, etc.) and has <30% pass
+ * rate on visually rich slides. The screenshot approach imposes no visual
+ * constraints and achieves pixel-perfect fidelity.
+ */
+
 import { resolve, basename } from "path";
 import puppeteer from "puppeteer";
 import pptxgen from "pptxgenjs";
 
+// 1280×720 at 96 DPI = 13.333″ × 7.5″ = PowerPoint default widescreen.
+// px / 96 gives clean inch values for PPTX positioning.
 const SLIDE_W = 1280;
 const SLIDE_H = 720;
 const PX_PER_INCH = 96;
+
+// PowerPoint's text rendering differs slightly from the browser's.
+// Single-line text boxes get 5% extra width to prevent wrapping.
 const SINGLE_LINE_WIDTH_BUFFER = 1.05;
+
+// Timeout for fonts + images loading. Prevents pipeline hangs when
+// a resource is unreachable (e.g., Google Fonts over file:// protocol).
 const RESOURCE_LOAD_TIMEOUT = 8000;
 
 // ---------------------------------------------------------------------------
@@ -54,7 +81,9 @@ function validatePageDOM() {
     errors.push(`Root element is ${Math.round(rect.width)}x${Math.round(rect.height)}, must be 1280x720.`);
   }
 
-  // Overflow detection — check each axis independently
+  // Check each overflow axis independently because the shorthand
+  // `overflow` may be a space-separated pair like "hidden visible"
+  // which wouldn't match a simple string equality check.
   const rootCS = window.getComputedStyle(root);
   const ovX = rootCS.overflowX;
   const ovY = rootCS.overflowY;
@@ -197,6 +226,9 @@ function extractTextElements() {
     return false;
   }
 
+  // Extract text runs from a text element, recursing into inline children.
+  // Uses explicit undefined checks (not ||) so a child can override a
+  // parent's non-zero value to zero (e.g., letter-spacing:0 on a span).
   function extractRuns(el, inheritedTransform) {
     const runs = [];
     for (const node of el.childNodes) {
@@ -283,7 +315,10 @@ function extractTextElements() {
         warnings.push(`Text element "${runs[0]?.text?.slice(0, 20) || ""}" has rotation ${rotation}° which may not position accurately in PPTX. Only 0°/90°/180°/270° are reliable.`);
       }
 
-      // Content-box measurement: subtract padding from bounding rect
+      // Measure the content box (excluding padding) rather than the border box.
+      // The PPTX text box is positioned at the content edge with margin:0.
+      // The visual padding area is already captured in the screenshot background,
+      // so the text box only needs to align with where text actually renders.
       const padTop = parseFloat(cs.paddingTop) || 0;
       const padRight = parseFloat(cs.paddingRight) || 0;
       const padBottom = parseFloat(cs.paddingBottom) || 0;
@@ -391,12 +426,17 @@ async function main() {
     console.log(`\n[${i + 1}/${files.length}] ${fileName}`);
 
     const page = await browser.newPage();
+    // deviceScaleFactor:2 produces a 2560×1440 screenshot — sufficient for
+    // 1080p projectors while keeping PPTX file size reasonable (~300-700KB/slide).
     await page.setViewport({ width: SLIDE_W, height: SLIDE_H, deviceScaleFactor: 2 });
 
     const fileUrl = `file://${filePath}`;
     try {
+      // Use waitUntil:'load' instead of 'networkidle0' because networkidle0
+      // hangs on file:// when external resources (Google Fonts) fail silently.
       await page.goto(fileUrl, { waitUntil: "load", timeout: 15000 });
-      // Wait for fonts and images, with a hard timeout to prevent hangs
+      // Wait for fonts and images with a hard timeout to prevent hangs
+      // from unreachable resources.
       await page.evaluate((timeout) => Promise.race([
         Promise.all([
           document.fonts.ready,
@@ -503,6 +543,9 @@ async function main() {
 
       if (pptxRuns.length === 0) continue;
 
+      // Use the largest font size across all runs for lineSpacingMultiple.
+      // Using runs[0].fontSize would produce wrong spacing when later runs
+      // have a larger font (e.g., <p>small <span style="font-size:48px">BIG</span></p>).
       const maxRunFontSize = Math.max(...el.runs.filter(r => !r.br).map(r => r.fontSize));
 
       const textOpts = {

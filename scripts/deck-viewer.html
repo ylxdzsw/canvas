@@ -25,6 +25,9 @@
     height: 720px;
     border: none;
     display: none;
+    /* Clicks/touches pass through to nav zones. This prevents the iframe
+       from stealing keyboard focus (which would break arrow-key navigation)
+       and makes touch swipe work without fighting iframe scrolling. */
     pointer-events: none;
   }
 
@@ -115,7 +118,9 @@ slides.forEach((src, i) => {
   iframes.push(iframe);
 });
 
-// Pre-populate print stack with all slides so they're loaded before print triggers
+// Pre-load all slides offscreen for print. Creating iframes in beforeprint
+// doesn't work because the browser renders the print layout immediately
+// before new iframes have loaded (resulting in blank pages).
 slides.forEach(src => {
   const f = document.createElement('iframe');
   f.src = src;
@@ -150,7 +155,8 @@ document.addEventListener('keydown', (e) => {
 document.getElementById('navL').addEventListener('click', () => show(current - 1));
 document.getElementById('navR').addEventListener('click', () => show(current + 1));
 
-// Touch/swipe navigation (single-finger only)
+// Touch/swipe navigation. Tracks by touch identifier to avoid
+// multi-finger gestures corrupting the swipe direction.
 let touchId = null;
 let touchStartX = 0;
 let touchStartY = 0;

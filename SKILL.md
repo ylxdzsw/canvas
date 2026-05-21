@@ -80,18 +80,31 @@ This loop repeats until the user is satisfied with all slides.
 
 ### Step 5 — Export
 
-Run the conversion script to produce a PPTX:
+Two export formats are available:
+
+#### PPTX (editable text, for delivery)
 
 ```bash
 node <skill-path>/scripts/html-to-pptx.js --output presentation.pptx 01-title.html 02-agenda.html ...
 ```
 
-The script validates each HTML, screenshots the visual layer, extracts text, and
-produces a portable PPTX with all assets embedded. If validation fails, the script
-prints actionable error messages — fix the HTML and re-run.
+The script validates each HTML, screenshots the visual layer, extracts text as
+native PPTX text boxes, and produces a portable PPTX with all assets embedded.
+Text in the PPTX is searchable, selectable, and editable. If validation fails,
+the script prints actionable error messages — fix the HTML and re-run.
 
-The user may also print the HTML slides to PDF via the browser for a pixel-accurate
-portable copy.
+#### PDF (pixel-perfect, for presentation)
+
+```bash
+node <skill-path>/scripts/html-to-pdf.js --output presentation.pdf 01-title.html 02-agenda.html ...
+```
+
+Each slide is rendered to a vector PDF page with full visual fidelity (text
+remains selectable and searchable). The PDF is configured with `PageLayout:
+SinglePage` and `PageMode: FullScreen`, so PDF viewers (Acrobat, Preview,
+Evince) display it in fullscreen presentation mode — one slide per screen,
+arrow keys to navigate, no continuous scrolling. This is the recommended
+format for presenting directly from a laptop.
 
 ## HTML Slide Constraints
 
