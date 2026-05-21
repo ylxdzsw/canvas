@@ -1,4 +1,4 @@
-# canvas
+# pptx-canvas
 
 An **agent skill** that turns a coding agent into a slide designer.
 
@@ -16,7 +16,7 @@ shadows, pseudo-elements, and clip-paths break the moment you leave the
 browser. Existing HTML→PPTX converters cope by banning most of CSS, which
 leaves agents with a sandbox too small to design in.
 
-`canvas` takes the opposite trade-off and uses the browser as the layout
+`pptx-canvas` takes the opposite trade-off and uses the browser as the layout
 engine. Agents write idiomatic HTML + inline CSS — flexbox, gradients,
 absolute positioning, the works — and the conversion script does the rest.
 
@@ -67,9 +67,9 @@ node html-to-pptx.js -o ../test/output.pptx ../test/*.html
 
 Open `test/output.pptx` in PowerPoint, Keynote, or LibreOffice Impress.
 
-A Linux system needs a CJK font on the path — `fonts-wqy-microhei` or
-`fonts-noto-cjk` both satisfy the `Microsoft YaHei` fallback chain used by
-the reference slides.
+The converter requires the **Microsoft YaHei** font to be installed. Obtain it
+from [fernvenue/microsoft-yahei](https://github.com/fernvenue/microsoft-yahei)
+and install the TTC files on your system font path.
 
 ## Design philosophy
 

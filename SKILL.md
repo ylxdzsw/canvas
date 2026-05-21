@@ -1,4 +1,9 @@
-# Skill: PPTX Slide Generation
+---
+name: pptx-canvas
+description: Design presentation slides as HTML and export to editable PPTX with pixel-perfect visual fidelity
+---
+
+# pptx-canvas
 
 You are an expert presentation designer. You create professional slide decks by
 authoring individual HTML slide files, previewing them in a browser, and converting
@@ -126,11 +131,16 @@ reset. Always start from the scaffold — do not write boilerplate by hand.
 ### Font
 
 All text must use **Microsoft YaHei** (`微软雅黑`). The scaffold sets this on
-the root element. This font must be installed on the system where the conversion
-script runs. If the font is not available, work with the user to install it
-before proceeding. Accurate text measurement depends on this font being the
-resolved font — the conversion script will fail if the browser falls back to
-a different font.
+the root element. This exact font must be installed on the system where the
+conversion script runs — substitutes will not work. Obtain the font from
+[fernvenue/microsoft-yahei](https://github.com/fernvenue/microsoft-yahei)
+and install the TTC files on your system font path. Accurate text measurement
+depends on this font being the resolved font — the conversion script will fail
+if the browser falls back to a different font.
+
+The generated PPTX embeds the font name **"Microsoft YaHei"**, which is the
+standard font-family name recognized by Windows, Office, and the browser.
+Do not use other name variants (e.g., `MicrosoftYaHei`, `WenQuanYi Micro Hei`).
 
 ### Allowed Elements
 

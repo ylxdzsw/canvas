@@ -21,15 +21,13 @@ jobs:
           cache: npm
           cache-dependency-path: scripts/package-lock.json
 
-      # The validator expects text to resolve to a Microsoft YaHei-compatible
-      # font. wqy-microhei is the canonical Linux substitute; noto-cjk covers
-      # the rest of the CJK glyph range.
-      - name: Install CJK fonts
+      - name: Install Microsoft YaHei font
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            fonts-wqy-microhei \
-            fonts-noto-cjk
+          FONT_DIR="$HOME/.fonts"
+          mkdir -p "$FONT_DIR"
+          wget -q "https://github.com/fernvenue/microsoft-yahei/raw/master/msyh.ttc" -O "$FONT_DIR/msyh.ttc"
+          wget -q "https://github.com/fernvenue/microsoft-yahei/raw/master/msyhbd.ttc" -O "$FONT_DIR/msyhbd.ttc"
+          wget -q "https://github.com/fernvenue/microsoft-yahei/raw/master/msyhl.ttc" -O "$FONT_DIR/msyhl.ttc"
           fc-cache -f
 
       - name: Install npm dependencies
