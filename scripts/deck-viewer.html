@@ -108,6 +108,10 @@
 <div id="print-stack" style="display:none;"></div>
 
 <script>
+// SLIDE_LIST is a placeholder: the agent copies this file into the workspace
+// and replaces it with the actual slide filenames, e.g.
+//   const slides = ["01-title.html", "02-agenda.html", ...];
+// Keep the exact `[/* SLIDE_LIST */]` token so the patch step can find it.
 const slides = [/* SLIDE_LIST */];
 
 let current = 0;

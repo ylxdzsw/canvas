@@ -289,6 +289,9 @@ function extractTextElements() {
       const cs = window.getComputedStyle(el);
       const fontSize = parseFloat(cs.fontSize);
       const lineHeight = parseFloat(cs.lineHeight) || fontSize * 1.2;
+      // Single-line detection: element height ≈ one line-height. The 1.5x
+      // tolerance absorbs padding, descenders, and sub-pixel rounding while
+      // still rejecting two-line elements (which would be ≥2.0x line-height).
       const isSingleLine = rect.height <= lineHeight * 1.5;
 
       const textTransform = cs.textTransform;
